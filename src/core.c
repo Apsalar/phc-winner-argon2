@@ -274,47 +274,60 @@ int fill_memory_blocks(argon2_instance_t *instance) {
             int rc;
             uint32_t l;
 
-            /* 2. Calling threads */
-            for (l = 0; l < instance->lanes; ++l) {
+            /* if parallelism == 1, avoid the overhead of threads */
+            if (instance->lanes == 1) {
+                l = 0;
                 argon2_position_t position;
-
-                /* 2.1 Join a thread if limit is exceeded */
-                if (l >= instance->threads) {
-                    rc = argon2_thread_join(thread[l - instance->threads]);
-                    if (rc) {
-                        free(thr_data);
-                        free(thread);
-                        return ARGON2_THREAD_FAIL;
-                    }
-                }
 
                 /* 2.2 Create thread */
                 position.pass = r;
                 position.lane = l;
                 position.slice = (uint8_t)s;
                 position.index = 0;
-                thr_data[l].instance_ptr =
-                    instance; /* preparing the thread input */
-                memcpy(&(thr_data[l].pos), &position,
-                       sizeof(argon2_position_t));
-                rc = argon2_thread_create(&thread[l], &fill_segment_thr,
-                                          (void *)&thr_data[l]);
-                if (rc) {
-                    free(thr_data);
-                    free(thread);
-                    return ARGON2_THREAD_FAIL;
+                fill_segment(instance, position);
+            } else {
+                /* 2. Calling threads */
+                for (l = 0; l < instance->lanes; ++l) {
+                    argon2_position_t position;
+
+                    /* 2.1 Join a thread if limit is exceeded */
+                    if (l >= instance->threads) {
+                        rc = argon2_thread_join(thread[l - instance->threads]);
+                        if (rc) {
+                            free(thr_data);
+                            free(thread);
+                            return ARGON2_THREAD_FAIL;
+                        }
+                    }
+
+                    /* 2.2 Create thread */
+                    position.pass = r;
+                    position.lane = l;
+                    position.slice = (uint8_t)s;
+                    position.index = 0;
+                    thr_data[l].instance_ptr =
+                        instance; /* preparing the thread input */
+                    memcpy(&(thr_data[l].pos), &position,
+                           sizeof(argon2_position_t));
+                    rc = argon2_thread_create(&thread[l], &fill_segment_thr,
+                                              (void *)&thr_data[l]);
+                    if (rc) {
+                        free(thr_data);
+                        free(thread);
+                        return ARGON2_THREAD_FAIL;
+                    }
+
+                    /* fill_segment(instance, position); */
+                    /*Non-thread equivalent of the lines above */
                 }
 
-                /* fill_segment(instance, position); */
-                /*Non-thread equivalent of the lines above */
-            }
-
-            /* 3. Joining remaining threads */
-            for (l = instance->lanes - instance->threads; l < instance->lanes;
-                 ++l) {
-                rc = argon2_thread_join(thread[l]);
-                if (rc) {
-                    return ARGON2_THREAD_FAIL;
+                /* 3. Joining remaining threads */
+                for (l = instance->lanes - instance->threads; l < instance->lanes;
+                     ++l) {
+                    rc = argon2_thread_join(thread[l]);
+                    if (rc) {
+                        return ARGON2_THREAD_FAIL;
+                    }
                 }
             }
         }
